@@ -24,7 +24,7 @@ app.config['SECRET_KEY'] = key
 #############################################################
 
 #Database configuration
-db_path = 'sqlite:///FxyAPI.db'
+db_path = 'sqlite:////home/lastc/FxyApi/FxyAPI.db'
 app.config['SQLALCHEMY_DATABASE_URI'] = db_path
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -43,6 +43,8 @@ def usrJson(usr):
 def sendMsg(msg, param = 'msg'):
 	return jsonify({param : msg})
 
+#############################################################
+
 #Models
 class user(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -51,14 +53,19 @@ class user(db.Model):
     password = db.Column(db.String(50))
     admin = db.Column(db.Boolean)
 
-    posts = db.relationship('post', backref='user', lazy=True)
+class group(db.Model):
+	id = db.Column(db.Integer, primary_key=True)
+	code = db.Column(db.String(50))
+	name = db.Column(db.String(50))
+	owner_id = db.Column(db.Integer)
 
 class post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(50))
     content = db.Column(db.String(400))
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-
+    author_id = db.Column(db.Integer)
+    group_id = db.Column(db.String(50))
+    
 #############################################################
 
 #Decorators
@@ -82,7 +89,7 @@ def token_required(f):
 
 #############################################################
 
-#User database manipulation
+#User manipulation
 @app.route('/user/<public_id>', methods=['GET'])
 @token_required
 def get_one_user(current_user, public_id):
@@ -108,11 +115,11 @@ def get_all_users(current_user):
 	return sendMsg(output, 'usr')
 
 @app.route('/user', methods=['POST'])
-@token_required
-def create_user(current_user):
+def create_user():
 	data = request.get_json()
 	
-	if user.query.filter_by(name=data['name']):
+	print(user.query.filter_by(name=data['name']).first())
+	if user.query.filter_by(name=data['name']).first():
 		return sendMsg('User already exists!')
 	
 	hash_passwd = generate_password_hash(data['password'], method='sha256')
@@ -147,6 +154,77 @@ def delete_user(current_user, public_id):
 	db.session.delete(usr)
 	db.session.commit()
 	return sendMsg('User have been deleted')
+
+#############################################################
+
+#Group manipulation
+@app.route('/groups', methods=['POST'])
+@token_required
+def create_group(current_user):
+	data = request.get_json()
+	
+	if group.query.filter_by(code=data['code']).first():
+		return sendMsg('Group code already exists!')
+	
+	new_group = group(code=str(data['code']), name=data['name'], owner_id=current_user.id)
+	db.session.add(new_group)
+	db.session.commit()
+	
+	return sendMsg('Group created successfuly!')
+
+@app.route('/groups/<group_code>', methods=['DELETE'])
+@token_required
+def delete_group(current_user, group_code):
+	
+	trg_group = group.query.filter_by(code=group_code).first()
+	
+	if not trg_group:
+		return sendMsg("Group not found!")
+	elif trg_group.owner_id != current_user.id:
+		return sendMsg("Permission denied!")	
+	
+	db.session.delete(trg_group)
+	db.session.commit()
+	return sendMsg("Gorup deleted!")
+
+@app.route('/groups', methods=['GET'])
+@token_required
+def show_group(current_user):
+	groups = group.query.all()
+	group_list = []
+	for grp in groups:
+		gj = {}
+		gj['name'] = grp.name
+		gj['code'] = grp.code
+		group_list.append(gj)
+	return sendMsg(group_list, 'Groups')
+
+#############################################################
+
+#Post manipulation
+@app.route('/posts', methods=['POST'])
+@token_required
+def create_posts(current_user):
+	data = request.get_json()
+	
+	if post.query.filter_by(title=data['title']).first():
+		return sendMsg('Group code already exists!')
+	if not group.query.filter_by(code=data['group_id']).first():
+		return sendMsg('Group does not exists!')
+		
+	new_post = post(title=data['title'], author_id=current_user.id, group_id=data['group_id'], content=data['content'])
+	db.session.add(new_post)
+	db.session.commit()
+	
+	return sendMsg('Post created successfuly!')
+
+#@app.route('/posts', methods=['POST'])
+#@token_required
+#def _post(current_user):
+
+#@app.route('/posts', methods=['POST'])
+#@token_required
+#def _post(current_user):
 
 #############################################################
 
