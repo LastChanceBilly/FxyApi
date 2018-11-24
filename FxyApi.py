@@ -63,7 +63,8 @@ class post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(50))
     content = db.Column(db.String(400))
-    author_id = db.Column(db.Integer)
+    author = db.Column(db.String(50))
+    topic = db.Column(db.String(50))
     group_id = db.Column(db.String(50))
     
 #############################################################
@@ -182,14 +183,16 @@ def delete_group(current_user, group_code):
 		return sendMsg("Group not found!")
 	elif trg_group.owner_id != current_user.id:
 		return sendMsg("Permission denied!")	
-	
+	posts = post.query.filter_by(group_id=trg_group.code)
+	for pst in posts:
+		db.session.delete(pst)
 	db.session.delete(trg_group)
 	db.session.commit()
-	return sendMsg("Gorup deleted!")
+	return sendMsg("Gorup and posts deleted!")
 
 @app.route('/groups', methods=['GET'])
 @token_required
-def show_group(current_user):
+def show_groups(current_user):
 	groups = group.query.all()
 	group_list = []
 	for grp in groups:
@@ -198,7 +201,7 @@ def show_group(current_user):
 		gj['code'] = grp.code
 		group_list.append(gj)
 	return sendMsg(group_list, 'Groups')
-
+	
 #############################################################
 
 #Post manipulation
@@ -208,15 +211,82 @@ def create_posts(current_user):
 	data = request.get_json()
 	
 	if post.query.filter_by(title=data['title']).first():
-		return sendMsg('Group code already exists!')
+		return sendMsg('Post title already exists!')
 	if not group.query.filter_by(code=data['group_id']).first():
 		return sendMsg('Group does not exists!')
 		
-	new_post = post(title=data['title'], author_id=current_user.id, group_id=data['group_id'], content=data['content'])
+	new_post = post(author=current_user.name, title=data['title'], group_id=data['group_id'], content=data['content'], topic = data['topic'])
 	db.session.add(new_post)
 	db.session.commit()
 	
 	return sendMsg('Post created successfuly!')
+
+@app.route('/posts/<group_code>/<name>', methods=['DELETE'])
+@token_required
+def delete_posts(current_user, group_code, name):
+	pst = post.query.filter_by(title=name, group_id=group_code).first()
+	if not pst:
+		return sendMsg('Post not found!')
+	
+	if current_user.name == pst.author or current_user.id == pst_group.owner_id:
+		db.session.delete(pst)
+		db.session.commit()
+	else:
+		return sendMsg('Access denied!')
+	return sendMsg('Post deleted!')	
+
+@app.route('/groups/<group_code>', methods=['GET'])
+@token_required
+def show_group_posts(current_user, group_code):
+	trg_group = group.query.filter_by(code=group_code).first()
+	
+	if not trg_group:
+		return sendMsg("Group not found!")
+	
+	group_posts = post.query.filter_by(group_id=trg_group.code)
+	
+	post_list = []
+	for pst in group_posts:
+		pj = {}
+		pj['title'] = pst.title
+		pj['content'] = pst.content
+		pj['author'] = pst.author
+		pj['topic'] = pst.topic
+		post_list.append(pj)
+	
+	return sendMsg(post_list, 'posts')
+
+@app.route('/posts/<group_code>', methods=['GET'])
+@token_required
+def search_posts(current_user, group_code):
+	data = request.get_json()
+	try:
+		posts = post.query.filter_by(title=data['title'], group_id = group_code)
+	except:
+		pass
+	try:
+		posts = post.query.filter_by(author=data['author'], group_id = group_code)
+	except:
+		pass
+	try:
+		posts = post.query.filter_by(topic=data['topic'], group_id = group_code)
+	except:
+		pass
+	
+	if not posts.first():
+		return sendMsg("Post(s) not found!")
+		
+	post_list = []
+	for pst in posts:
+		pj = {}
+		pj['title'] = pst.title
+		pj['content'] = pst.content
+		pj['author'] = pst.author
+		pj['topic'] = pst.topic
+		post_list.append(pj)
+	
+	return sendMsg(post_list, 'posts')
+
 
 #@app.route('/posts', methods=['POST'])
 #@token_required
@@ -241,7 +311,7 @@ def login():
 		return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic real="Login required!"'})
 	
 	if check_password_hash(usr.password, auth.password):
-		token = jwt.encode({'public_id' : usr.public_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=30)}, app.config['SECRET_KEY'])
+		token = jwt.encode({'public_id' : usr.public_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=200)}, app.config['SECRET_KEY'])
 		
 		return sendMsg(token.decode('UTF-8'), 'token')
 	return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic real="Login required!"'})
