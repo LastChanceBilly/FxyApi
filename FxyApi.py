@@ -24,7 +24,7 @@ app.config['SECRET_KEY'] = key
 #############################################################
 
 #Database configuration
-db_path = 'sqlite:////home/lastc/FxyApi/FxyAPI.db'
+db_path = 'sqlite:///.FxyAPI.db'
 app.config['SQLALCHEMY_DATABASE_URI'] = db_path
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -38,7 +38,7 @@ def usrJson(usr):
 	user_data['name']= usr.name
 	user_data['password']= usr.password
 	user_data['admin']= usr.admin
-	return user_data	
+	return user_data
 
 def sendMsg(msg, param = 'msg'):
 	return jsonify({param : msg})
@@ -95,10 +95,10 @@ def token_required(f):
 @token_required
 def get_one_user(current_user, public_id):
 	if not current_user.admin:
-		return sendMsg("Access denied, admin required!")
+		return sendMsg("Access denied, admin required!", 'err')
 	usr = user.query.filter_by(public_id = public_id).first()
 	if not usr:
-		return sendMsg('User not found')
+		return sendMsg('User not found', 'err')
 	else:
 		return sendMsg(usrJson(usr), 'user')	
 
@@ -113,7 +113,7 @@ def get_all_users(current_user):
 		print(usr)
 		user_data = usrJson(usr)
 		output.append(user_data)
-	return sendMsg(output, 'usr')
+	return sendMsg(output, 'users')
 
 @app.route('/user', methods=['POST'])
 def create_user():
@@ -121,7 +121,7 @@ def create_user():
 	
 	print(user.query.filter_by(name=data['name']).first())
 	if user.query.filter_by(name=data['name']).first():
-		return sendMsg('User already exists!')
+		return sendMsg('User already exists!', 'err')
 	
 	hash_passwd = generate_password_hash(data['password'], method='sha256')
 	
@@ -129,7 +129,7 @@ def create_user():
 	db.session.add(new_user)
 	db.session.commit()
 
-	return sendMsg('User '+ new_user.name +' created')
+	return sendMsg('User created')
 
 @app.route('/user/<public_id>', methods=['PUT'])
 @token_required
@@ -165,7 +165,7 @@ def create_group(current_user):
 	data = request.get_json()
 	
 	if group.query.filter_by(code=data['code']).first():
-		return sendMsg('Group code already exists!')
+		return sendMsg('Group code already exists!', "err")
 	
 	new_group = group(code=str(data['code']), name=data['name'], owner_id=current_user.id)
 	db.session.add(new_group)
@@ -180,9 +180,9 @@ def delete_group(current_user, group_code):
 	trg_group = group.query.filter_by(code=group_code).first()
 	
 	if not trg_group:
-		return sendMsg("Group not found!")
+		return sendMsg("Group not found!", "err")
 	elif trg_group.owner_id != current_user.id:
-		return sendMsg("Permission denied!")	
+		return sendMsg("Permission denied!", "err")
 	posts = post.query.filter_by(group_id=trg_group.code)
 	for pst in posts:
 		db.session.delete(pst)
@@ -211,10 +211,10 @@ def create_posts(current_user):
 	data = request.get_json()
 	
 	if post.query.filter_by(title=data['title']).first():
-		return sendMsg('Post title already exists!')
+		return sendMsg('Post title already exists!', "err")
 	if not group.query.filter_by(code=data['group_id']).first():
-		return sendMsg('Group does not exists!')
-		
+		return sendMsg('Group does not exists!', "err")
+	
 	new_post = post(author=current_user.name, title=data['title'], group_id=data['group_id'], content=data['content'], topic = data['topic'])
 	db.session.add(new_post)
 	db.session.commit()
@@ -226,13 +226,13 @@ def create_posts(current_user):
 def delete_posts(current_user, group_code, name):
 	pst = post.query.filter_by(title=name, group_id=group_code).first()
 	if not pst:
-		return sendMsg('Post not found!')
+		return sendMsg('Post not found!', "err")
 	
 	if current_user.name == pst.author or current_user.id == pst_group.owner_id:
 		db.session.delete(pst)
 		db.session.commit()
 	else:
-		return sendMsg('Access denied!')
+		return sendMsg('Access denied!', "err")
 	return sendMsg('Post deleted!')	
 
 @app.route('/groups/<group_code>', methods=['GET'])
@@ -241,7 +241,7 @@ def show_group_posts(current_user, group_code):
 	trg_group = group.query.filter_by(code=group_code).first()
 	
 	if not trg_group:
-		return sendMsg("Group not found!")
+		return sendMsg("Group not found!", "err")
 	
 	group_posts = post.query.filter_by(group_id=trg_group.code)
 	
@@ -256,26 +256,28 @@ def show_group_posts(current_user, group_code):
 	
 	return sendMsg(post_list, 'posts')
 
-@app.route('/posts/<group_code>', methods=['GET'])
+@app.route('/posts/<group_code>/<tpc>', methods=['GET'])
 @token_required
-def search_posts(current_user, group_code):
-	data = request.get_json()
+def search_posts(current_user, group_code, tpc):
+	#data = request.get_json()
+
+	#try:
+	#	posts = post.query.filter_by(title=data['title'], group_id = group_code)
+	#except:
+	#	pass
+	#try:
+	#	posts = post.query.filter_by(author=data['author'], group_id = group_code)
+	#except:
+	#	pass
 	try:
-		posts = post.query.filter_by(title=data['title'], group_id = group_code)
+		posts = post.query.filter_by(topic=tpc, group_id = group_code)
 	except:
 		pass
 	try:
-		posts = post.query.filter_by(author=data['author'], group_id = group_code)
+		if not posts.first():
+			return sendMsg("Post(s) not found!", "err")
 	except:
-		pass
-	try:
-		posts = post.query.filter_by(topic=data['topic'], group_id = group_code)
-	except:
-		pass
-	
-	if not posts.first():
-		return sendMsg("Post(s) not found!")
-		
+		return sendMsg("Post(s) not found!", "err")
 	post_list = []
 	for pst in posts:
 		pj = {}
@@ -299,7 +301,7 @@ def search_posts(current_user, group_code):
 #############################################################
 
 #Authentication space
-@app.route('/login')
+@app.route('/login', methods=['POST', 'GET'])
 def login():
 	auth =request.authorization
 	if not auth or not auth.username or not auth.password:
@@ -311,11 +313,11 @@ def login():
 		return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic real="Login required!"'})
 	
 	if check_password_hash(usr.password, auth.password):
-		token = jwt.encode({'public_id' : usr.public_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=200)}, app.config['SECRET_KEY'])
+		token = jwt.encode({'public_id' : usr.public_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=20)}, app.config['SECRET_KEY'])
 		
 		return sendMsg(token.decode('UTF-8'), 'token')
 	return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic real="Login required!"'})
 
 #############################################################
 if __name__ == '__main__':
-	app.run(debug=True)
+	app.run(debug=True, host='0.0.0.0')
